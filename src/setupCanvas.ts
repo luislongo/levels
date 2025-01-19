@@ -1,6 +1,12 @@
 import * as THREE from "three";
 import * as dat from "dat.gui";
 
+type Terrain = {
+  size: number;
+  resolution: number;
+  color: string;
+};
+
 export const setupCanvas = () => {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(
@@ -18,7 +24,13 @@ export const setupCanvas = () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  const { vertices } = createGridGeometry({ size: 10, resolution: 10 });
+  const terrain: Terrain = {
+    size: 10,
+    resolution: 10,
+    color: "#00ff00",
+  };
+
+  const { vertices } = createGridGeometry(terrain);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute(
     "position",
@@ -31,7 +43,7 @@ export const setupCanvas = () => {
   const mesh = new THREE.Mesh(geometry, material);
   scene.add(mesh);
 
-  createGUI({ camera });
+  createGUI({ camera, mesh, material, terrain });
 
   requestAnimationFrame(function animate() {
     camera.lookAt(0, 0, 0);
@@ -76,13 +88,53 @@ const createGridGeometry = ({
   };
 };
 
-const createGUI = ({ camera }: { camera: THREE.PerspectiveCamera }) => {
+const createGUI = ({
+  camera,
+  mesh,
+  material,
+  terrain,
+}: {
+  camera: THREE.PerspectiveCamera;
+  mesh: THREE.Mesh;
+  material: THREE.MeshBasicMaterial;
+  terrain: Terrain;
+}) => {
   const gui = new dat.GUI();
   const cameraFolder = gui.addFolder("Camera");
   cameraFolder.add(camera.position, "x", -10, 10);
   cameraFolder.add(camera.position, "y", -10, 10);
   cameraFolder.add(camera.position, "z", -10, 10);
   cameraFolder.open();
+
+  const terrainFolder = gui.addFolder("Terrain");
+  terrainFolder.addColor({ color: "#00ff00" }, "color").onChange((color) => {
+    // @ts-ignore
+    mesh.material.color.set(color);
+  });
+  terrainFolder.add(material, "wireframe");
+  terrainFolder.add(terrain, "resolution", 1, 100).onChange((value) => {
+    const { vertices } = createGridGeometry({
+      size: terrain.size,
+      resolution: value,
+    });
+    mesh.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(vertices, 3)
+    );
+
+    mesh.geometry.computeVertexNormals();
+  });
+  terrainFolder.add(terrain, "size", 1, 100).onChange((value) => {
+    const { vertices } = createGridGeometry({ size: value, resolution: 10 });
+    mesh.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(vertices, 3)
+    );
+
+    mesh.geometry.computeVertexNormals();
+  });
+
+  terrainFolder.open();
 
   return gui;
 };
