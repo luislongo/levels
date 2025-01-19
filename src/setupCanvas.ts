@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import * as dat from "dat.gui";
 import { Perlin } from "three-noise";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-const perlin = new Perlin();
+var perlin = new Perlin();
 
 type Terrain = {
   size: number;
@@ -11,15 +12,17 @@ type Terrain = {
   amplitude: number;
   persistance: number;
   octaves: number;
+  seed: number;
 };
 
 const terrain: Terrain = {
   size: 10,
-  resolution: 10,
+  resolution: 100,
   color: "#00ff00",
-  amplitude: 1,
-  persistance: 1,
-  octaves: 1,
+  amplitude: 2,
+  persistance: 0.4,
+  octaves: 8,
+  seed: Math.random() * 1000,
 };
 
 export const setupCanvas = () => {
@@ -31,13 +34,16 @@ export const setupCanvas = () => {
     1000
   );
 
-  camera.position.z = 5;
-  camera.position.y = 5;
+  camera.position.z = 10;
+  camera.position.y = 10;
+  camera.position.x = 10;
   camera.lookAt(0, 0, 0);
 
   const renderer = new THREE.WebGLRenderer();
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
+
+  new OrbitControls(camera, renderer.domElement);
 
   const { vertices } = createGridGeometry(terrain);
   const geometry = new THREE.BufferGeometry();
@@ -46,8 +52,8 @@ export const setupCanvas = () => {
     new THREE.Float32BufferAttribute(vertices, 3)
   );
   const material = new THREE.MeshBasicMaterial({
-    color: 0x00ff00,
-    wireframe: false,
+    color: 0xffffff,
+    wireframe: true,
   });
   const mesh = new THREE.Mesh(geometry, material);
   scene.add(mesh);
@@ -77,15 +83,15 @@ const computeHeight = (
   }
 ) => {
   let curAmplitude = amplitude;
-  let curFrequency = 1;
+  let curFrequency = 0.2;
   let y = 0;
 
   for (let i = 0; i < octaves; i++) {
     y +=
       curAmplitude *
       perlin.get2(new THREE.Vector2(x * curFrequency, z * curFrequency));
-    curAmplitude /= persistance;
-    curFrequency *= persistance;
+    curAmplitude *= persistance;
+    curFrequency /= persistance;
   }
 
   return y;
@@ -155,6 +161,7 @@ const createGUI = ({
       persistance: terrain.persistance,
       octaves: terrain.octaves,
       color: terrain.color,
+      seed: terrain.seed,
     });
     mesh.geometry.setAttribute(
       "position",
@@ -169,6 +176,7 @@ const createGUI = ({
       persistance: terrain.persistance,
       octaves: terrain.octaves,
       color: terrain.color,
+      seed: terrain.seed,
     });
     mesh.geometry.setAttribute(
       "position",
@@ -176,7 +184,7 @@ const createGUI = ({
     );
   });
 
-  terrainFolder.add(terrain, "amplitude", 0, 1).onChange((value) => {
+  terrainFolder.add(terrain, "amplitude", 0, 2).onChange((value) => {
     const { vertices } = createGridGeometry({
       size: terrain.size,
       resolution: terrain.resolution,
@@ -184,6 +192,7 @@ const createGUI = ({
       persistance: terrain.persistance,
       octaves: terrain.octaves,
       color: terrain.color,
+      seed: terrain.seed,
     });
 
     mesh.geometry.setAttribute(
@@ -200,6 +209,7 @@ const createGUI = ({
       persistance: value,
       octaves: terrain.octaves,
       color: terrain.color,
+      seed: terrain.seed,
     });
 
     mesh.geometry.setAttribute(
@@ -216,6 +226,25 @@ const createGUI = ({
       persistance: terrain.persistance,
       octaves: value,
       color: terrain.color,
+      seed: terrain.seed,
+    });
+
+    mesh.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(vertices, 3)
+    );
+  });
+
+  terrainFolder.add(terrain, "seed", 0, 1000).onChange((value) => {
+    perlin = new Perlin(value);
+    const { vertices } = createGridGeometry({
+      size: terrain.size,
+      resolution: terrain.resolution,
+      amplitude: terrain.amplitude,
+      persistance: terrain.persistance,
+      octaves: terrain.octaves,
+      color: terrain.color,
+      seed: value,
     });
 
     mesh.geometry.setAttribute(
