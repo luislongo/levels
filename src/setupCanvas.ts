@@ -125,7 +125,10 @@ const createGUI = ({
     mesh.geometry.computeVertexNormals();
   });
   terrainFolder.add(terrain, "size", 1, 100).onChange((value) => {
-    const { vertices } = createGridGeometry({ size: value, resolution: 10 });
+    const { vertices } = createGridGeometry({
+      size: value,
+      resolution: terrain.resolution,
+    });
     mesh.geometry.setAttribute(
       "position",
       new THREE.Float32BufferAttribute(vertices, 3)
