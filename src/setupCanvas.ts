@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import * as dat from "dat.gui";
 
 export const setupCanvas = () => {
   const scene = new THREE.Scene();
@@ -30,7 +31,13 @@ export const setupCanvas = () => {
   const mesh = new THREE.Mesh(geometry, material);
   scene.add(mesh);
 
-  renderer.render(scene, camera);
+  createGUI({ camera });
+
+  requestAnimationFrame(function animate() {
+    camera.lookAt(0, 0, 0);
+    renderer.render(scene, camera);
+    requestAnimationFrame(animate);
+  });
 
   return { scene, camera, renderer };
 };
@@ -67,4 +74,15 @@ const createGridGeometry = ({
   return {
     vertices: new Float32Array(vertices),
   };
+};
+
+const createGUI = ({ camera }: { camera: THREE.PerspectiveCamera }) => {
+  const gui = new dat.GUI();
+  const cameraFolder = gui.addFolder("Camera");
+  cameraFolder.add(camera.position, "x", -10, 10);
+  cameraFolder.add(camera.position, "y", -10, 10);
+  cameraFolder.add(camera.position, "z", -10, 10);
+  cameraFolder.open();
+
+  return gui;
 };
