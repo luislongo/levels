@@ -1,10 +1,25 @@
 import * as THREE from "three";
 import * as dat from "dat.gui";
+import { Perlin } from "three-noise";
+
+const perlin = new Perlin();
 
 type Terrain = {
   size: number;
   resolution: number;
   color: string;
+  amplitude: number;
+  persistance: number;
+  octaves: number;
+};
+
+const terrain: Terrain = {
+  size: 10,
+  resolution: 10,
+  color: "#00ff00",
+  amplitude: 1,
+  persistance: 1,
+  octaves: 1,
 };
 
 export const setupCanvas = () => {
@@ -23,12 +38,6 @@ export const setupCanvas = () => {
   const renderer = new THREE.WebGLRenderer();
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
-
-  const terrain: Terrain = {
-    size: 10,
-    resolution: 10,
-    color: "#00ff00",
-  };
 
   const { vertices } = createGridGeometry(terrain);
   const geometry = new THREE.BufferGeometry();
@@ -54,13 +63,35 @@ export const setupCanvas = () => {
   return { scene, camera, renderer };
 };
 
-const createGridGeometry = ({
-  size,
-  resolution,
-}: {
-  size: number;
-  resolution: number;
-}) => {
+const computeHeight = (
+  x: number,
+  z: number,
+  {
+    amplitude,
+    persistance,
+    octaves,
+  }: {
+    amplitude: number;
+    persistance: number;
+    octaves: number;
+  }
+) => {
+  let curAmplitude = amplitude;
+  let curFrequency = 1;
+  let y = 0;
+
+  for (let i = 0; i < octaves; i++) {
+    y +=
+      curAmplitude *
+      perlin.get2(new THREE.Vector2(x * curFrequency, z * curFrequency));
+    curAmplitude /= persistance;
+    curFrequency *= persistance;
+  }
+
+  return y;
+};
+
+const createGridGeometry = ({ size, resolution, ...rest }: Terrain) => {
   const halfSize = size / 2;
   const vertices = [];
 
@@ -72,14 +103,18 @@ const createGridGeometry = ({
       const z0 = j * step - halfSize;
       const x1 = (i + 1) * step - halfSize;
       const z1 = (j + 1) * step - halfSize;
+      const yx0z0 = computeHeight(x0, z0, rest);
+      const yx1z0 = computeHeight(x1, z0, rest);
+      const yx0z1 = computeHeight(x0, z1, rest);
+      const yx1z1 = computeHeight(x1, z1, rest);
 
-      vertices.push(x0, 0, z0);
-      vertices.push(x1, 0, z1);
-      vertices.push(x1, 0, z0);
+      vertices.push(x0, yx0z0, z0);
+      vertices.push(x1, yx1z1, z1);
+      vertices.push(x1, yx1z0, z0);
 
-      vertices.push(x0, 0, z0);
-      vertices.push(x0, 0, z1);
-      vertices.push(x1, 0, z1);
+      vertices.push(x0, yx0z0, z0);
+      vertices.push(x0, yx0z1, z1);
+      vertices.push(x1, yx1z1, z1);
     }
   }
 
@@ -116,25 +151,77 @@ const createGUI = ({
     const { vertices } = createGridGeometry({
       size: terrain.size,
       resolution: value,
+      amplitude: terrain.amplitude,
+      persistance: terrain.persistance,
+      octaves: terrain.octaves,
+      color: terrain.color,
     });
     mesh.geometry.setAttribute(
       "position",
       new THREE.Float32BufferAttribute(vertices, 3)
     );
-
-    mesh.geometry.computeVertexNormals();
   });
   terrainFolder.add(terrain, "size", 1, 100).onChange((value) => {
     const { vertices } = createGridGeometry({
       size: value,
       resolution: terrain.resolution,
+      amplitude: terrain.amplitude,
+      persistance: terrain.persistance,
+      octaves: terrain.octaves,
+      color: terrain.color,
     });
     mesh.geometry.setAttribute(
       "position",
       new THREE.Float32BufferAttribute(vertices, 3)
     );
+  });
 
-    mesh.geometry.computeVertexNormals();
+  terrainFolder.add(terrain, "amplitude", 0, 1).onChange((value) => {
+    const { vertices } = createGridGeometry({
+      size: terrain.size,
+      resolution: terrain.resolution,
+      amplitude: value,
+      persistance: terrain.persistance,
+      octaves: terrain.octaves,
+      color: terrain.color,
+    });
+
+    mesh.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(vertices, 3)
+    );
+  });
+
+  terrainFolder.add(terrain, "persistance", 0.01, 1).onChange((value) => {
+    const { vertices } = createGridGeometry({
+      size: terrain.size,
+      resolution: terrain.resolution,
+      amplitude: terrain.amplitude,
+      persistance: value,
+      octaves: terrain.octaves,
+      color: terrain.color,
+    });
+
+    mesh.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(vertices, 3)
+    );
+  });
+
+  terrainFolder.add(terrain, "octaves", 1, 10).onChange((value) => {
+    const { vertices } = createGridGeometry({
+      size: terrain.size,
+      resolution: terrain.resolution,
+      amplitude: terrain.amplitude,
+      persistance: terrain.persistance,
+      octaves: value,
+      color: terrain.color,
+    });
+
+    mesh.geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(vertices, 3)
+    );
   });
 
   terrainFolder.open();

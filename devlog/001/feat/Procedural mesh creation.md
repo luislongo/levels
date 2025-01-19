@@ -16,4 +16,4 @@
 - Users can specify the width, length, and height of the terrain before generation.
 - The resolution of the mesh can be adjusted (e.g., low, medium, high detail).
 - Changes to the configuration are reflected in the generated mesh within 1-2 seconds.
-- The generated mesh includes basic visual differentiation between elevation levels (e.g., a color gradient).
+- ~~The generated mesh includes basic visual differentiation between elevation levels (e.g., a color gradient).~~
