@@ -56,17 +56,26 @@ export const setupCanvas = () => {
   const vertexShader = `
   uniform float size;
   uniform sampler2D heightMap;
+  varying vec3 v_normal;
 
   void main() {
     float y = texture2D(heightMap, vec2(position.x, position.y)).r * 2.0;
+    float y2 = texture2D(heightMap, vec2(position.x + 0.01, position.y)).r * 2.0;
+    float y3 = texture2D(heightMap, vec2(position.x, position.y + 0.01)).r * 2.0;
+    vec3 dx = vec3(0.01, y2 - y, 0.01);
+    vec3 dy = vec3(0.0, y3 - y, 0.01);
+    v_normal = normalize(cross(dy, dx));
     vec4 modelViewPosition = modelViewMatrix * vec4((position.x - 0.5) * size , y, (position.y - 0.5) * size, 1.0); 
     gl_Position = projectionMatrix * modelViewPosition;
   }
 `;
 
   const fragmentShader = `
+  varying vec3 v_normal;
+
   void main() {
-    gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+    float intensity = dot(v_normal, vec3(1.0, 1.0, 0.0));
+    gl_FragColor =  vec4(vec3(intensity), 1.0);
   }
     `;
 
@@ -77,6 +86,7 @@ export const setupCanvas = () => {
       size: { value: terrain.size },
       heightMap: { value: new THREE.TextureLoader().load(heightmap) },
     },
+    wireframe: true,
   });
   const mesh = new THREE.Mesh(geometry, material);
   scene.add(mesh);
@@ -165,7 +175,7 @@ const createGUI = ({
   });
   terrainFolder.add(material, "wireframe");
 
-  terrainFolder.add(terrain, "resolution", 1, 100).onChange((value) => {
+  terrainFolder.add(terrain, "resolution", 1, 1000).onChange((value) => {
     remakeGeometry(mesh, terrain, { resolution: value });
   });
   terrainFolder.add(terrain, "size", 1, 100).onChange((value) => {
