@@ -2,7 +2,9 @@ import * as THREE from "three";
 import * as dat from "dat.gui";
 import { Perlin } from "three-noise";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import heightmap from "../public/heightmap.jpg";
+import heightmap from "./assets/heightmap2.jpeg";
+import vertexShader from "./assets/shaders/vertexShader.glsl?raw";
+import fragmentShader from "./assets/shaders/fragmentShader.glsl?raw";
 
 var perlin = new Perlin();
 
@@ -18,7 +20,7 @@ type Terrain = {
 
 const terrain: Terrain = {
   size: 10,
-  resolution: 100,
+  resolution: 2000,
   color: "#00ff00",
   amplitude: 2,
   persistance: 0.4,
@@ -53,40 +55,23 @@ export const setupCanvas = () => {
     new THREE.Float32BufferAttribute(vertices, 2)
   );
 
-  const vertexShader = `
-  uniform float size;
-  uniform sampler2D heightMap;
-  varying vec3 v_normal;
-
-  void main() {
-    float y = texture2D(heightMap, vec2(position.x, position.y)).r * 2.0;
-    float y2 = texture2D(heightMap, vec2(position.x + 0.01, position.y)).r * 2.0;
-    float y3 = texture2D(heightMap, vec2(position.x, position.y + 0.01)).r * 2.0;
-    vec3 dx = vec3(0.01, y2 - y, 0.01);
-    vec3 dy = vec3(0.0, y3 - y, 0.01);
-    v_normal = normalize(cross(dy, dx));
-    vec4 modelViewPosition = modelViewMatrix * vec4((position.x - 0.5) * size , y, (position.y - 0.5) * size, 1.0); 
-    gl_Position = projectionMatrix * modelViewPosition;
-  }
-`;
-
-  const fragmentShader = `
-  varying vec3 v_normal;
-
-  void main() {
-    float intensity = dot(v_normal, vec3(1.0, 1.0, 0.0));
-    gl_FragColor =  vec4(vec3(intensity), 1.0);
-  }
-    `;
+  const texture = new THREE.TextureLoader().load(heightmap);
+  texture.minFilter = THREE.NearestFilter;
+  texture.magFilter = THREE.NearestFilter;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
 
   const material = new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
     uniforms: {
       size: { value: terrain.size },
-      heightMap: { value: new THREE.TextureLoader().load(heightmap) },
+      heightMap: { value: texture },
+      resolution: { value: terrain.resolution },
+      amplitude: { value: terrain.amplitude },
+      kernelSize: { value: 1.0 },
     },
-    wireframe: true,
+    wireframe: false,
   });
   const mesh = new THREE.Mesh(geometry, material);
   scene.add(mesh);
@@ -176,6 +161,7 @@ const createGUI = ({
   terrainFolder.add(material, "wireframe");
 
   terrainFolder.add(terrain, "resolution", 1, 1000).onChange((value) => {
+    material.uniforms.resolution.value = value;
     remakeGeometry(mesh, terrain, { resolution: value });
   });
   terrainFolder.add(terrain, "size", 1, 100).onChange((value) => {
@@ -183,7 +169,7 @@ const createGUI = ({
   });
 
   terrainFolder.add(terrain, "amplitude", 0, 2).onChange((value) => {
-    remakeGeometry(mesh, terrain, { amplitude: value });
+    material.uniforms.amplitude.value = value;
   });
 
   terrainFolder.add(terrain, "persistance", 0.01, 1).onChange((value) => {
@@ -197,6 +183,8 @@ const createGUI = ({
   terrainFolder.add(terrain, "seed", 0, 1000).onChange((value) => {
     remakeGeometry(mesh, terrain, { seed: value });
   });
+
+  terrainFolder.add(material.uniforms.kernelSize, "value", 0, 10);
 
   terrainFolder.open();
 
