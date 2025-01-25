@@ -25,6 +25,6 @@ void main() {
     vec3 dy = vec3(0.0, yu - yd, step);
     v_normal = normalize(cross(dy, dx));
 
-    vec4 modelViewPosition = vec4((x0 - 0.5) * size , y0, (z0 - 0.5) * size, 1.0); 
+    vec4 modelViewPosition = vec4(x0 * size , y0, z0 * size, 1.0); 
     gl_Position = projectionMatrix * modelViewMatrix * modelViewPosition;
 }
