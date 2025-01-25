@@ -2,6 +2,10 @@ import * as dat from "dat.gui";
 import * as THREE from "three";
 import heightMapVtx from "./assets/shaders/heightMap.vert.glsl?url&raw";
 import heightMapFrag from "./assets/shaders/heightMap.frag.glsl?url&raw";
+import { OrbitControls } from "three/examples/jsm/Addons.js";
+import vertexShader from "./assets/shaders/scene.vert.glsl?url&raw";
+import fragmentShader from "./assets/shaders/scene.frag.glsl?url&raw";
+import { screenSize } from "three/tsl";
 
 type Terrain = {
   size: number;
@@ -23,10 +27,30 @@ const terrain: Terrain = {
   seed: Math.random() * 1000,
 };
 
-const createTexture = (renderer: THREE.WebGLRenderer) => {
-  const resolution = 512;
-  const scene = new THREE.Scene();
-  const camera = new THREE.OrthographicCamera(
+const createTexture = (
+  renderer: THREE.WebGLRenderer,
+  renderTarget: THREE.WebGLRenderTarget,
+  resolution = 2000
+) => {
+  return { renderTarget, material: targetMaterial };
+};
+
+export const setupCanvas = () => {
+  const renderer = new THREE.WebGLRenderer();
+
+  const mainScene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(
+    75,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+  );
+
+  const resolution = 2048;
+  const textureTarget = new THREE.WebGLRenderTarget(resolution, resolution);
+
+  const targetScene = new THREE.Scene();
+  const targetCamera = new THREE.OrthographicCamera(
     0,
     resolution,
     0,
@@ -35,96 +59,121 @@ const createTexture = (renderer: THREE.WebGLRenderer) => {
     1000
   );
 
-  renderer.setSize(resolution, resolution);
-
-  const geometry = new THREE.PlaneGeometry(resolution, resolution);
-
-  const quad = new THREE.Mesh(
-    geometry,
-    new THREE.ShaderMaterial({
-      uniforms: {
-        resolution: { value: resolution },
-        persistence: { value: 0.01 },
-        octaves: { value: 8 },
-        lacunarity: { value: 2.0 },
-        scale: { value: 0.1 },
-      },
-      vertexShader: heightMapVtx,
-      fragmentShader: heightMapFrag,
-      wireframe: false,
-    })
-  );
-
-  scene.add(quad);
-
-  renderer.render(scene, camera);
-
-  requestAnimationFrame(function animate() {
-    renderer.render(scene, camera);
-    requestAnimationFrame(animate);
+  const targetgeometry = new THREE.PlaneGeometry(resolution, resolution);
+  const targetMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      resolution: { value: resolution },
+      persistence: { value: 0.01 },
+      octaves: { value: 8 },
+      lacunarity: { value: 2.0 },
+      scale: { value: 0.1 },
+    },
+    vertexShader: heightMapVtx,
+    fragmentShader: heightMapFrag,
+    wireframe: false,
   });
 
-  const gui = new dat.GUI();
-  gui.add(quad.material.uniforms.persistence, "value", 0.01, 1);
-  gui.add(quad.material.uniforms.octaves, "value", 1, 10);
-  gui.add(quad.material.uniforms.lacunarity, "value", 0, 10);
-  gui.add(quad.material.uniforms.scale, "value", 0, 1);
-};
+  const quad = new THREE.Mesh(targetgeometry, targetMaterial);
 
-export const setupCanvas = () => {
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(
-    75,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000
-  );
+  targetScene.add(quad);
 
-  const renderer = new THREE.WebGLRenderer();
+  renderer.setSize(resolution, resolution);
+  renderer.setRenderTarget(textureTarget);
+  renderer.render(targetScene, targetCamera);
+  renderer.setRenderTarget(null);
   renderer.setSize(window.innerWidth, window.innerHeight);
-
   camera.position.z = -10;
   camera.position.y = 10;
   camera.position.x = -10;
   camera.lookAt(0, 0, 0);
 
-  createTexture(renderer);
   document.body.appendChild(renderer.domElement);
 
-  // new OrbitControls(camera, renderer.domElement);
+  new OrbitControls(camera, renderer.domElement);
+  const { vertices, indices } = createGridGeometry(terrain);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(vertices, 2)
+  );
+  geometry.setIndex(indices);
 
-  // const { vertices, indices } = createGridGeometry(terrain);
-  // const geometry = new THREE.BufferGeometry();
-  // geometry.setAttribute(
-  //   "position",
-  //   new THREE.Float32BufferAttribute(vertices, 2)
-  // );
-  // geometry.setIndex(indices);
+  const terrainMaterial = new THREE.ShaderMaterial({
+    vertexShader,
+    fragmentShader,
+    uniforms: {
+      size: { value: terrain.size },
+      heightMap: { value: textureTarget.texture },
+      resolution: { value: terrain.resolution },
+      amplitude: { value: terrain.amplitude },
+      kernelSize: { value: 1.0 },
+    },
+    wireframe: false,
+  });
+  const mesh = new THREE.Mesh(geometry, terrainMaterial);
+  mesh.position.x = -terrain.size / 2;
+  mesh.position.z = -terrain.size / 2;
+  mainScene.add(mesh);
 
-  // const material = new THREE.ShaderMaterial({
-  //   vertexShader,
-  //   fragmentShader,
-  //   uniforms: {
-  //     size: { value: terrain.size },
-  //     heightMap: { value: textureFromScene.texture },
-  //     resolution: { value: terrain.resolution },
-  //     amplitude: { value: terrain.amplitude },
-  //     kernelSize: { value: 1.0 },
-  //   },
-  //   wireframe: false,
-  // });
-  // const mesh = new THREE.Mesh(geometry, material);
-  // scene.add(mesh);
+  const heightMapQuadGeometry = new THREE.PlaneGeometry(1, 1);
+  heightMapQuadGeometry.translate(0.5, 0.5, 0);
 
-  // createGUI({ mesh, material, terrain });
+  const heightMapQuad = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.ShaderMaterial({
+      uniforms: {
+        heightMap: { value: textureTarget.texture },
+        screenSize: {
+          value: new THREE.Vector2(window.innerWidth, window.innerHeight),
+        },
+        size: { value: 300 },
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        uniform vec2 screenSize;
+        uniform float size;
 
-  // requestAnimationFrame(function animate() {
-  //   camera.lookAt(0, 0, 0);
-  //   renderer.render(scene, camera);
-  //   requestAnimationFrame(animate);
-  // });
+        void main() {
+          float right = (position.x / screenSize.x) * size + 1.0 - 0.5 * size / screenSize.x;
+          float bottom = position.y / screenSize.y * size - 1.0 + 0.5 * size / screenSize.y;
+          vec4 screenPos = vec4(right, bottom, 0.0, 1.0);
+          vUv = uv;
+          gl_Position = screenPos;
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform sampler2D heightMap;
 
-  // return { scene, camera, renderer };
+        void main() {
+          gl_FragColor = texture2D(heightMap, vec2(1.0) - vUv );
+        }
+      `,
+    })
+  );
+  heightMapQuad.position.z = -1;
+  heightMapQuad.position.x = -1;
+  mainScene.add(heightMapQuad);
+
+  const gui = new dat.GUI();
+
+  const terrainFolder = gui.addFolder("Terrain");
+  terrainFolder.add(targetMaterial.uniforms.persistence, "value", 0, 1);
+  terrainFolder.add(targetMaterial.uniforms.octaves, "value", 1, 10);
+  terrainFolder.add(targetMaterial.uniforms.lacunarity, "value", 1, 10);
+  terrainFolder.add(targetMaterial.uniforms.scale, "value", 0.01, 1);
+
+  requestAnimationFrame(function animate() {
+    terrainMaterial.uniforms.heightMap.value = textureTarget.texture;
+
+    renderer.setRenderTarget(textureTarget);
+    renderer.render(targetScene, targetCamera);
+    renderer.setRenderTarget(null);
+
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.render(mainScene, camera);
+    requestAnimationFrame(animate);
+  });
 };
 
 const createGridGeometry = ({ resolution }: Terrain) => {
@@ -158,55 +207,6 @@ const createGridGeometry = ({ resolution }: Terrain) => {
     vertices,
     indices,
   };
-};
-
-const createGUI = ({
-  mesh,
-  material,
-  terrain,
-}: {
-  mesh: THREE.Mesh;
-  material: THREE.ShaderMaterial;
-  terrain: Terrain;
-}) => {
-  const gui = new dat.GUI();
-
-  const terrainFolder = gui.addFolder("Terrain");
-  terrainFolder.addColor({ color: "#00ff00" }, "color").onChange((color) => {
-    // @ts-ignore
-    mesh.material.color.set(color);
-  });
-  terrainFolder.add(material, "wireframe");
-
-  terrainFolder.add(terrain, "resolution", 1, 1000).onChange((value) => {
-    material.uniforms.resolution.value = value;
-    remakeGeometry(mesh, terrain, { resolution: value });
-  });
-  terrainFolder.add(terrain, "size", 1, 100).onChange((value) => {
-    material.uniforms.size.value = value;
-  });
-
-  terrainFolder.add(terrain, "amplitude", 0, 2).onChange((value) => {
-    material.uniforms.amplitude.value = value;
-  });
-
-  terrainFolder.add(terrain, "persistance", 0.01, 1).onChange((value) => {
-    remakeGeometry(mesh, terrain, { persistance: value });
-  });
-
-  terrainFolder.add(terrain, "octaves", 1, 10).onChange((value) => {
-    remakeGeometry(mesh, terrain, { octaves: value });
-  });
-
-  terrainFolder.add(terrain, "seed", 0, 1000).onChange((value) => {
-    remakeGeometry(mesh, terrain, { seed: value });
-  });
-
-  terrainFolder.add(material.uniforms.kernelSize, "value", 0, 10);
-
-  terrainFolder.open();
-
-  return gui;
 };
 
 const remakeGeometry = (
