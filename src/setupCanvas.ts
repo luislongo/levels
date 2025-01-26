@@ -1,32 +1,137 @@
-import * as THREE from "three";
 import * as dat from "dat.gui";
-import { Perlin } from "three-noise";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-
-var perlin = new Perlin();
+import * as THREE from "three";
+import heightMapVtx from "./assets/shaders/heightMap.vert.glsl?url&raw";
+import heightMapFrag from "./assets/shaders/heightMap.frag.glsl?url&raw";
+import { OrbitControls } from "three/examples/jsm/Addons.js";
+import vertexShader from "./assets/shaders/scene.vert.glsl?url&raw";
+import fragmentShader from "./assets/shaders/scene.frag.glsl?url&raw";
+import heightMapPreviewFrag from "./assets/shaders/heightMapPreview.frag.glsl?url&raw";
+import heightMapPreviewVtx from "./assets/shaders/heightMapPreview.vert.glsl?url&raw";
 
 type Terrain = {
   size: number;
   resolution: number;
-  color: string;
   amplitude: number;
-  persistance: number;
-  octaves: number;
-  seed: number;
 };
 
-const terrain: Terrain = {
-  size: 10,
-  resolution: 100,
-  color: "#00ff00",
-  amplitude: 2,
-  persistance: 0.4,
-  octaves: 8,
-  seed: Math.random() * 1000,
+const createScene = ({
+  size,
+  resolution,
+  amplitude,
+  renderTarget,
+}: Terrain & {
+  renderTarget: THREE.WebGLRenderTarget;
+}) => {
+  const mainScene = new THREE.Scene();
+  const { vertices, indices } = createGridGeometry({
+    size,
+    resolution,
+    amplitude,
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(vertices, 2)
+  );
+  geometry.setIndex(indices);
+
+  const terrainMaterial = new THREE.ShaderMaterial({
+    vertexShader,
+    fragmentShader,
+    uniforms: {
+      size: { value: size },
+      heightMap: { value: renderTarget.texture },
+      resolution: { value: resolution },
+      amplitude: { value: amplitude },
+      kernelSize: { value: 1.0 },
+    },
+    wireframe: false,
+  });
+
+  const mesh = new THREE.Mesh(geometry, terrainMaterial);
+  mesh.position.x = -size / 2;
+  mesh.position.z = -size / 2;
+  mainScene.add(mesh);
+
+  const heightMapQuadGeometry = new THREE.PlaneGeometry(1, 1);
+  heightMapQuadGeometry.translate(0.5, 0.5, 0);
+
+  const heightMapQuad = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.ShaderMaterial({
+      uniforms: {
+        heightMap: { value: renderTarget.texture },
+        screenSize: {
+          value: new THREE.Vector2(window.innerWidth, window.innerHeight),
+        },
+        size: { value: 300 },
+      },
+      vertexShader: heightMapPreviewVtx,
+      fragmentShader: heightMapPreviewFrag,
+    })
+  );
+  heightMapQuad.position.z = -1;
+  heightMapQuad.position.x = -1;
+  mainScene.add(heightMapQuad);
+
+  return { mainScene, terrainMaterial };
+};
+
+const createTargetScene = ({
+  resolution,
+  renderTarget,
+}: {
+  resolution: number;
+  renderTarget: THREE.WebGLRenderTarget;
+}) => {
+  const targetScene = new THREE.Scene();
+  const targetCamera = new THREE.OrthographicCamera(
+    0,
+    resolution,
+    0,
+    resolution,
+    -1,
+    1000
+  );
+
+  const targetgeometry = new THREE.PlaneGeometry(resolution, resolution);
+  const targetMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      resolution: { value: resolution },
+      persistence: { value: 0.01 },
+      octaves: { value: 8 },
+      lacunarity: { value: 2.0 },
+      scale: { value: 0.1 },
+    },
+    vertexShader: heightMapVtx,
+    fragmentShader: heightMapFrag,
+    wireframe: false,
+  });
+
+  const quad = new THREE.Mesh(targetgeometry, targetMaterial);
+
+  targetScene.add(quad);
+
+  return { targetScene, targetCamera, targetMaterial, renderTarget };
 };
 
 export const setupCanvas = () => {
-  const scene = new THREE.Scene();
+  const resolution = 512;
+
+  const renderer = new THREE.WebGLRenderer();
+  const renderTarget = new THREE.WebGLRenderTarget(resolution, resolution);
+
+  const { mainScene, terrainMaterial } = createScene({
+    size: 10,
+    resolution,
+    amplitude: 1,
+    renderTarget,
+  });
+  const { targetScene, targetCamera, targetMaterial } = createTargetScene({
+    resolution,
+    renderTarget,
+  });
+
   const camera = new THREE.PerspectiveCamera(
     75,
     window.innerWidth / window.innerHeight,
@@ -34,226 +139,76 @@ export const setupCanvas = () => {
     1000
   );
 
-  camera.position.z = 10;
+  camera.position.z = -10;
   camera.position.y = 10;
-  camera.position.x = 10;
+  camera.position.x = -10;
   camera.lookAt(0, 0, 0);
 
-  const renderer = new THREE.WebGLRenderer();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  new OrbitControls(camera, renderer.domElement);
   document.body.appendChild(renderer.domElement);
 
-  new OrbitControls(camera, renderer.domElement);
+  const gui = new dat.GUI();
 
-  const { vertices } = createGridGeometry(terrain);
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute(
-    "position",
-    new THREE.Float32BufferAttribute(vertices, 3)
-  );
-  const material = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    wireframe: true,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  scene.add(mesh);
+  const terrainFolder = gui.addFolder("Terrain");
+  terrainFolder
+    .add(targetMaterial.uniforms.persistence, "value", 0, 1)
+    .name("Persistence");
+  terrainFolder
+    .add(targetMaterial.uniforms.octaves, "value", 1, 10)
+    .name("Octaves");
+  terrainFolder
+    .add(targetMaterial.uniforms.lacunarity, "value", 1, 10)
+    .name("Lacunarity");
+  terrainFolder
+    .add(targetMaterial.uniforms.scale, "value", 0.01, 1)
+    .name("Scale");
+  terrainFolder.add(terrainMaterial, "wireframe").name("Wireframe");
 
-  createGUI({ camera, mesh, material, terrain });
+  terrainFolder.open();
 
   requestAnimationFrame(function animate() {
-    camera.lookAt(0, 0, 0);
-    renderer.render(scene, camera);
+    terrainMaterial.uniforms.heightMap.value = renderTarget.texture;
+
+    renderer.setRenderTarget(renderTarget);
+    renderer.setSize(resolution, resolution);
+    renderer.render(targetScene, targetCamera);
+
+    renderer.setRenderTarget(null);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.render(mainScene, camera);
     requestAnimationFrame(animate);
   });
-
-  return { scene, camera, renderer };
 };
 
-const computeHeight = (
-  x: number,
-  z: number,
-  {
-    amplitude,
-    persistance,
-    octaves,
-  }: {
-    amplitude: number;
-    persistance: number;
-    octaves: number;
-  }
-) => {
-  let curAmplitude = amplitude;
-  let curFrequency = 0.2;
-  let y = 0;
-
-  for (let i = 0; i < octaves; i++) {
-    y +=
-      curAmplitude *
-      perlin.get2(new THREE.Vector2(x * curFrequency, z * curFrequency));
-    curAmplitude *= persistance;
-    curFrequency /= persistance;
-  }
-
-  return y;
-};
-
-const createGridGeometry = ({ size, resolution, ...rest }: Terrain) => {
-  const halfSize = size / 2;
+const createGridGeometry = ({ resolution }: Terrain) => {
   const vertices = [];
+  const indices = [];
 
-  const step = size / resolution;
+  const step = 1 / resolution;
 
   for (let i = 0; i < resolution; i++) {
     for (let j = 0; j < resolution; j++) {
-      const x0 = i * step - halfSize;
-      const z0 = j * step - halfSize;
-      const x1 = (i + 1) * step - halfSize;
-      const z1 = (j + 1) * step - halfSize;
-      const yx0z0 = computeHeight(x0, z0, rest);
-      const yx1z0 = computeHeight(x1, z0, rest);
-      const yx0z1 = computeHeight(x0, z1, rest);
-      const yx1z1 = computeHeight(x1, z1, rest);
+      const x = i * step;
+      const z = j * step;
 
-      vertices.push(x0, yx0z0, z0);
-      vertices.push(x1, yx1z1, z1);
-      vertices.push(x1, yx1z0, z0);
+      vertices.push(x, z);
+    }
+  }
 
-      vertices.push(x0, yx0z0, z0);
-      vertices.push(x0, yx0z1, z1);
-      vertices.push(x1, yx1z1, z1);
+  for (let i = 0; i < resolution - 1; i++) {
+    for (let j = 0; j < resolution - 1; j++) {
+      const a = i * resolution + j;
+      const b = a + 1;
+      const c = a + resolution;
+      const d = c + 1;
+
+      indices.push(a, b, c);
+      indices.push(b, d, c);
     }
   }
 
   return {
-    vertices: new Float32Array(vertices),
+    vertices,
+    indices,
   };
-};
-
-const createGUI = ({
-  camera,
-  mesh,
-  material,
-  terrain,
-}: {
-  camera: THREE.PerspectiveCamera;
-  mesh: THREE.Mesh;
-  material: THREE.MeshBasicMaterial;
-  terrain: Terrain;
-}) => {
-  const gui = new dat.GUI();
-  const cameraFolder = gui.addFolder("Camera");
-  cameraFolder.add(camera.position, "x", -10, 10);
-  cameraFolder.add(camera.position, "y", -10, 10);
-  cameraFolder.add(camera.position, "z", -10, 10);
-  cameraFolder.open();
-
-  const terrainFolder = gui.addFolder("Terrain");
-  terrainFolder.addColor({ color: "#00ff00" }, "color").onChange((color) => {
-    // @ts-ignore
-    mesh.material.color.set(color);
-  });
-  terrainFolder.add(material, "wireframe");
-  terrainFolder.add(terrain, "resolution", 1, 100).onChange((value) => {
-    const { vertices } = createGridGeometry({
-      size: terrain.size,
-      resolution: value,
-      amplitude: terrain.amplitude,
-      persistance: terrain.persistance,
-      octaves: terrain.octaves,
-      color: terrain.color,
-      seed: terrain.seed,
-    });
-    mesh.geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(vertices, 3)
-    );
-  });
-  terrainFolder.add(terrain, "size", 1, 100).onChange((value) => {
-    const { vertices } = createGridGeometry({
-      size: value,
-      resolution: terrain.resolution,
-      amplitude: terrain.amplitude,
-      persistance: terrain.persistance,
-      octaves: terrain.octaves,
-      color: terrain.color,
-      seed: terrain.seed,
-    });
-    mesh.geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(vertices, 3)
-    );
-  });
-
-  terrainFolder.add(terrain, "amplitude", 0, 2).onChange((value) => {
-    const { vertices } = createGridGeometry({
-      size: terrain.size,
-      resolution: terrain.resolution,
-      amplitude: value,
-      persistance: terrain.persistance,
-      octaves: terrain.octaves,
-      color: terrain.color,
-      seed: terrain.seed,
-    });
-
-    mesh.geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(vertices, 3)
-    );
-  });
-
-  terrainFolder.add(terrain, "persistance", 0.01, 1).onChange((value) => {
-    const { vertices } = createGridGeometry({
-      size: terrain.size,
-      resolution: terrain.resolution,
-      amplitude: terrain.amplitude,
-      persistance: value,
-      octaves: terrain.octaves,
-      color: terrain.color,
-      seed: terrain.seed,
-    });
-
-    mesh.geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(vertices, 3)
-    );
-  });
-
-  terrainFolder.add(terrain, "octaves", 1, 10).onChange((value) => {
-    const { vertices } = createGridGeometry({
-      size: terrain.size,
-      resolution: terrain.resolution,
-      amplitude: terrain.amplitude,
-      persistance: terrain.persistance,
-      octaves: value,
-      color: terrain.color,
-      seed: terrain.seed,
-    });
-
-    mesh.geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(vertices, 3)
-    );
-  });
-
-  terrainFolder.add(terrain, "seed", 0, 1000).onChange((value) => {
-    perlin = new Perlin(value);
-    const { vertices } = createGridGeometry({
-      size: terrain.size,
-      resolution: terrain.resolution,
-      amplitude: terrain.amplitude,
-      persistance: terrain.persistance,
-      octaves: terrain.octaves,
-      color: terrain.color,
-      seed: value,
-    });
-
-    mesh.geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(vertices, 3)
-    );
-  });
-
-  terrainFolder.open();
-
-  return gui;
 };
