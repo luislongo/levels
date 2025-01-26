@@ -5,6 +5,7 @@ uniform float resolution;
 uniform float amplitude;
 uniform float kernelSize;
 varying vec3 v_normal;
+varying vec2 v_uv;
 
 void main() {
     float step = 1.0f / resolution * kernelSize;
@@ -24,6 +25,7 @@ void main() {
     vec3 dx = vec3(step, yr - yl, 0.0);
     vec3 dy = vec3(0.0, yu - yd, step);
     v_normal = normalize(cross(dy, dx));
+    v_uv = vec2(x0, z0);
 
     vec4 modelViewPosition = vec4(x0 * size , y0, z0 * size, 1.0); 
     gl_Position = projectionMatrix * modelViewMatrix * modelViewPosition;

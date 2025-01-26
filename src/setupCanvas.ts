@@ -116,7 +116,7 @@ const createTargetScene = ({
 };
 
 export const setupCanvas = () => {
-  const resolution = 2048;
+  const resolution = 512;
 
   const renderer = new THREE.WebGLRenderer();
   const renderTarget = new THREE.WebGLRenderTarget(resolution, resolution);
@@ -150,18 +150,30 @@ export const setupCanvas = () => {
   const gui = new dat.GUI();
 
   const terrainFolder = gui.addFolder("Terrain");
-  terrainFolder.add(targetMaterial.uniforms.persistence, "value", 0, 1);
-  terrainFolder.add(targetMaterial.uniforms.octaves, "value", 1, 10);
-  terrainFolder.add(targetMaterial.uniforms.lacunarity, "value", 1, 10);
-  terrainFolder.add(targetMaterial.uniforms.scale, "value", 0.01, 1);
+  terrainFolder
+    .add(targetMaterial.uniforms.persistence, "value", 0, 1)
+    .name("Persistence");
+  terrainFolder
+    .add(targetMaterial.uniforms.octaves, "value", 1, 10)
+    .name("Octaves");
+  terrainFolder
+    .add(targetMaterial.uniforms.lacunarity, "value", 1, 10)
+    .name("Lacunarity");
+  terrainFolder
+    .add(targetMaterial.uniforms.scale, "value", 0.01, 1)
+    .name("Scale");
+  terrainFolder.add(terrainMaterial, "wireframe").name("Wireframe");
+
+  terrainFolder.open();
 
   requestAnimationFrame(function animate() {
     terrainMaterial.uniforms.heightMap.value = renderTarget.texture;
 
     renderer.setRenderTarget(renderTarget);
+    renderer.setSize(resolution, resolution);
     renderer.render(targetScene, targetCamera);
-    renderer.setRenderTarget(null);
 
+    renderer.setRenderTarget(null);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.render(mainScene, camera);
     requestAnimationFrame(animate);
