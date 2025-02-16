@@ -3,6 +3,8 @@ uniform float persistence;
 uniform float lacunarity;
 uniform float octaves;
 uniform float scale;
+uniform float offsetX;
+uniform float offsetY;
 
 //
 // Description : Array and textureless GLSL 2D simplex noise function.
@@ -81,9 +83,9 @@ void main() {
     float intensity = 0.0;
 
     for (int i = 0; i < int(octaves); i++) {
-        float frequency = pow(2.0, float(i));
+        float frequency = pow(lacunarity, float(i));
         float amplitude = pow(persistence, float(i));
-        intensity += snoise(v_Uv * frequency) * amplitude * scale;
+        intensity += 0.4 * ( snoise((v_Uv + vec2(offsetX, offsetY))  * frequency) + 1.0) * amplitude * scale;
     }
 
     gl_FragColor =  vec4(intensity, intensity, intensity, 1.0);

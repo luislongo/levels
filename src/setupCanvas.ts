@@ -7,6 +7,7 @@ import vertexShader from "./assets/shaders/scene.vert.glsl?url&raw";
 import fragmentShader from "./assets/shaders/scene.frag.glsl?url&raw";
 import heightMapPreviewFrag from "./assets/shaders/heightMapPreview.frag.glsl?url&raw";
 import heightMapPreviewVtx from "./assets/shaders/heightMapPreview.vert.glsl?url&raw";
+import { rotate } from "three/tsl";
 
 type Terrain = {
   size: number;
@@ -14,15 +15,51 @@ type Terrain = {
   amplitude: number;
 };
 
-const createScene = ({
+const pointer = new THREE.Vector2();
+
+const createHeightMapScene = ({ resolution }: { resolution: number }) => {
+  const heightMapScene = new THREE.Scene();
+  const heightMapCamera = new THREE.OrthographicCamera(
+    0,
+    resolution,
+    0,
+    resolution,
+    -1,
+    1000
+  );
+
+  const targetgeometry = new THREE.PlaneGeometry(resolution, resolution);
+  const heightMapMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      resolution: { value: resolution },
+      persistence: { value: 0.01 },
+      octaves: { value: 8 },
+      lacunarity: { value: 2.0 },
+      scale: { value: 1 },
+      offsetX: { value: 0.0 },
+      offsetY: { value: 0.0 },
+    },
+    vertexShader: heightMapVtx,
+    fragmentShader: heightMapFrag,
+    wireframe: false,
+  });
+
+  const quad = new THREE.Mesh(targetgeometry, heightMapMaterial);
+
+  heightMapScene.add(quad);
+
+  return { heightMapScene, heightMapCamera, heightMapMaterial };
+};
+
+const createTerrainScene = ({
   size,
   resolution,
   amplitude,
-  renderTarget,
+  heightMap,
 }: Terrain & {
-  renderTarget: THREE.WebGLRenderTarget;
+  heightMap: THREE.WebGLRenderTarget;
 }) => {
-  const mainScene = new THREE.Scene();
+  const terrainScene = new THREE.Scene();
   const { vertices, indices } = createGridGeometry({
     size,
     resolution,
@@ -40,7 +77,7 @@ const createScene = ({
     fragmentShader,
     uniforms: {
       size: { value: size },
-      heightMap: { value: renderTarget.texture },
+      heightMap: { value: heightMap.texture },
       resolution: { value: resolution },
       amplitude: { value: amplitude },
       kernelSize: { value: 1.0 },
@@ -51,16 +88,48 @@ const createScene = ({
   const mesh = new THREE.Mesh(geometry, terrainMaterial);
   mesh.position.x = -size / 2;
   mesh.position.z = -size / 2;
-  mainScene.add(mesh);
+  terrainScene.add(mesh);
 
-  const heightMapQuadGeometry = new THREE.PlaneGeometry(1, 1);
-  heightMapQuadGeometry.translate(0.5, 0.5, 0);
+  const terrainCamera = new THREE.PerspectiveCamera(
+    75,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+  );
+
+  terrainCamera.position.z = -10;
+  terrainCamera.position.y = 10;
+  terrainCamera.position.x = -10;
+  terrainCamera.lookAt(0, 0, 0);
+
+  return { terrainScene, terrainMaterial, terrainCamera };
+};
+
+const createVisualScene = ({
+  heightMap,
+  terrainTarget,
+}: {
+  heightMap: THREE.WebGLRenderTarget;
+  terrainTarget: THREE.WebGLRenderTarget;
+}) => {
+  const visualCamera = new THREE.OrthographicCamera(
+    -0.5,
+    0.5,
+    -0.5,
+    0.5,
+    -1,
+    1000
+  );
+  visualCamera.position.z = -1;
+  visualCamera.lookAt(0, 0, 0);
+
+  const visualScene = new THREE.Scene();
 
   const heightMapQuad = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1),
     new THREE.ShaderMaterial({
       uniforms: {
-        heightMap: { value: renderTarget.texture },
+        heightMap: { value: heightMap.texture },
         screenSize: {
           value: new THREE.Vector2(window.innerWidth, window.innerHeight),
         },
@@ -68,114 +137,107 @@ const createScene = ({
       },
       vertexShader: heightMapPreviewVtx,
       fragmentShader: heightMapPreviewFrag,
+      side: THREE.DoubleSide,
     })
   );
-  heightMapQuad.position.z = -1;
-  heightMapQuad.position.x = -1;
-  mainScene.add(heightMapQuad);
 
-  return { mainScene, terrainMaterial };
-};
+  const visualQuadGeometry = new THREE.PlaneGeometry(1, 1);
+  visualQuadGeometry.rotateZ(Math.PI);
 
-const createTargetScene = ({
-  resolution,
-  renderTarget,
-}: {
-  resolution: number;
-  renderTarget: THREE.WebGLRenderTarget;
-}) => {
-  const targetScene = new THREE.Scene();
-  const targetCamera = new THREE.OrthographicCamera(
-    0,
-    resolution,
-    0,
-    resolution,
-    -1,
-    1000
+  const visualQuad = new THREE.Mesh(
+    visualQuadGeometry,
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      map: terrainTarget.texture,
+    })
   );
 
-  const targetgeometry = new THREE.PlaneGeometry(resolution, resolution);
-  const targetMaterial = new THREE.ShaderMaterial({
-    uniforms: {
-      resolution: { value: resolution },
-      persistence: { value: 0.01 },
-      octaves: { value: 8 },
-      lacunarity: { value: 2.0 },
-      scale: { value: 0.1 },
-    },
-    vertexShader: heightMapVtx,
-    fragmentShader: heightMapFrag,
-    wireframe: false,
-  });
+  visualQuad.position.z = 1;
+  visualQuad.position.x = 0;
 
-  const quad = new THREE.Mesh(targetgeometry, targetMaterial);
+  visualScene.add(visualQuad);
+  visualScene.add(heightMapQuad);
 
-  targetScene.add(quad);
-
-  return { targetScene, targetCamera, targetMaterial, renderTarget };
+  return { visualScene, visualCamera };
 };
 
 export const setupCanvas = () => {
   const resolution = 512;
 
   const renderer = new THREE.WebGLRenderer();
-  const renderTarget = new THREE.WebGLRenderTarget(resolution, resolution);
+  const heightMapTarget = new THREE.WebGLRenderTarget(resolution, resolution);
+  const terrainTarget = new THREE.WebGLRenderTarget(
+    window.innerWidth,
+    window.innerHeight
+  );
 
-  const { mainScene, terrainMaterial } = createScene({
+  const { heightMapMaterial, heightMapScene, heightMapCamera } =
+    createHeightMapScene({
+      resolution,
+    });
+  const { terrainScene, terrainMaterial, terrainCamera } = createTerrainScene({
     size: 10,
     resolution,
     amplitude: 1,
-    renderTarget,
+    heightMap: heightMapTarget,
   });
-  const { targetScene, targetCamera, targetMaterial } = createTargetScene({
-    resolution,
-    renderTarget,
+  const { visualScene, visualCamera } = createVisualScene({
+    heightMap: heightMapTarget,
+    terrainTarget,
   });
 
-  const camera = new THREE.PerspectiveCamera(
-    75,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000
-  );
-
-  camera.position.z = -10;
-  camera.position.y = 10;
-  camera.position.x = -10;
-  camera.lookAt(0, 0, 0);
-
-  new OrbitControls(camera, renderer.domElement);
+  new OrbitControls(terrainCamera, renderer.domElement);
   document.body.appendChild(renderer.domElement);
 
   const gui = new dat.GUI();
 
   const terrainFolder = gui.addFolder("Terrain");
   terrainFolder
-    .add(targetMaterial.uniforms.persistence, "value", 0, 1)
+    .add(heightMapMaterial.uniforms.persistence, "value", 0, 1)
     .name("Persistence");
   terrainFolder
-    .add(targetMaterial.uniforms.octaves, "value", 1, 10)
+    .add(heightMapMaterial.uniforms.octaves, "value", 1, 10)
     .name("Octaves");
   terrainFolder
-    .add(targetMaterial.uniforms.lacunarity, "value", 1, 10)
+    .add(heightMapMaterial.uniforms.lacunarity, "value", 1, 10)
     .name("Lacunarity");
   terrainFolder
-    .add(targetMaterial.uniforms.scale, "value", 0.01, 1)
+    .add(heightMapMaterial.uniforms.scale, "value", 0.01, 3)
     .name("Scale");
   terrainFolder.add(terrainMaterial, "wireframe").name("Wireframe");
+  terrainFolder
+    .add(heightMapMaterial.uniforms.offsetX, "value", -1000, 1000)
+    .name("Offset X");
+  terrainFolder
+    .add(heightMapMaterial.uniforms.offsetY, "value", -1000, 1000)
+    .name("Offset Y");
 
   terrainFolder.open();
 
-  requestAnimationFrame(function animate() {
-    terrainMaterial.uniforms.heightMap.value = renderTarget.texture;
+  window.addEventListener("mousemove", (e) => {
+    const x = e.offsetX / window.innerWidth;
+    const y = e.offsetY / window.innerHeight;
 
-    renderer.setRenderTarget(renderTarget);
+    pointer.set(x, y);
+  });
+
+  requestAnimationFrame(function animate() {
+    terrainMaterial.uniforms.heightMap.value = heightMapTarget.texture;
+
+    renderer.setRenderTarget(heightMapTarget);
     renderer.setSize(resolution, resolution);
-    renderer.render(targetScene, targetCamera);
+    renderer.render(heightMapScene, heightMapCamera);
+
+    renderer.setRenderTarget(terrainTarget);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.render(terrainScene, terrainCamera);
 
     renderer.setRenderTarget(null);
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.render(mainScene, camera);
+    renderer.render(visualScene, visualCamera);
+
+    //Read color under pointer for scene texture
+
     requestAnimationFrame(animate);
   });
 };
