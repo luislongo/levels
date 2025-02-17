@@ -8,7 +8,7 @@ varying vec3 v_normal;
 varying vec2 v_uv;
 
 void main() {
-    float step = 1.0f / resolution * kernelSize;
+    float step = 1.0f / resolution * 5.0;
     float x0 = position.x;
     float z0 = position.y;
     float xl = position.x - step ;
@@ -27,6 +27,6 @@ void main() {
     v_normal = normalize(cross(dy, dx));
     v_uv = vec2(x0, z0);
 
-    vec4 modelViewPosition = vec4(x0 * size , y0, z0 * size, 1.0); 
+    vec4 modelViewPosition = vec4(x0 * size , y0 * 2.0, z0 * size, 1.0); 
     gl_Position = projectionMatrix * modelViewMatrix * modelViewPosition;
 }
