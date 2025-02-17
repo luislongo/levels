@@ -5,5 +5,5 @@
   void main() {
     float height = texture2D(heightMap, v_uv).r;
     float intensity = dot(v_normal, vec3(1.0, 1.0, 0.0));
-    gl_FragColor =  vec4(0.1 + height * intensity, 0.0, 0.0, 1.0);
+    gl_FragColor =  vec4(v_uv, 0.0, 1.0);
   }

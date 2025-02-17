@@ -1,12 +1,12 @@
-import * as dat from "dat.gui";
 import * as THREE from "three";
-import heightMapVtx from "./assets/shaders/heightMap.vert.glsl?url&raw";
-import heightMapFrag from "./assets/shaders/heightMap.frag.glsl?url&raw";
 import { OrbitControls } from "three/examples/jsm/Addons.js";
-import vertexShader from "./assets/shaders/scene.vert.glsl?url&raw";
-import fragmentShader from "./assets/shaders/scene.frag.glsl?url&raw";
+import brushTex from "./assets/brush3.png";
 import heightMapPreviewFrag from "./assets/shaders/heightMapPreview.frag.glsl?url&raw";
 import heightMapPreviewVtx from "./assets/shaders/heightMapPreview.vert.glsl?url&raw";
+import fragmentUVShader from "./assets/shaders/sceneUV.frag.glsl?url&raw";
+import fragmentShader from "./assets/shaders/scene.frag.glsl?url&raw";
+import vertexShader from "./assets/shaders/scene.vert.glsl?url&raw";
+import dat from "dat.gui";
 
 type Terrain = {
   size: number;
@@ -14,15 +14,54 @@ type Terrain = {
   amplitude: number;
 };
 
-const createScene = ({
+const brushPrefs = {
+  up: false,
+};
+
+const pointer = new THREE.Vector2();
+let isDrawing = false;
+
+const createHeightMapScene = ({ resolution }: { resolution: number }) => {
+  const heightMapScene = new THREE.Scene();
+  const heightMapCamera = new THREE.OrthographicCamera(
+    0,
+    resolution,
+    0,
+    resolution,
+    0.01,
+    1000
+  );
+  heightMapCamera.position.z = 10;
+
+  const brush = new THREE.PlaneGeometry(200, 200);
+  const brushTexture = new THREE.TextureLoader().load(brushTex);
+  const brushMaterial = new THREE.MeshBasicMaterial({
+    map: brushTexture,
+    side: THREE.DoubleSide,
+    opacity: 0.1,
+    transparent: true,
+    blendEquation: THREE.ReverseSubtractEquation,
+  });
+  const brushQuad = new THREE.Mesh(brush, brushMaterial);
+  brushQuad.position.x = 100;
+  brushQuad.position.y = 100;
+  brushQuad.position.z = 3;
+  heightMapScene.add(brushQuad);
+
+  return { heightMapScene, heightMapCamera, brushQuad, brushMaterial };
+};
+
+const createTerrainScene = ({
   size,
   resolution,
   amplitude,
-  renderTarget,
+  heightMap,
 }: Terrain & {
-  renderTarget: THREE.WebGLRenderTarget;
+  heightMap: THREE.WebGLRenderTarget;
 }) => {
-  const mainScene = new THREE.Scene();
+  const uvScene = new THREE.Scene();
+  const terrainScene = new THREE.Scene();
+
   const { vertices, indices } = createGridGeometry({
     size,
     resolution,
@@ -35,12 +74,12 @@ const createScene = ({
   );
   geometry.setIndex(indices);
 
-  const terrainMaterial = new THREE.ShaderMaterial({
+  const uvMaterial = new THREE.ShaderMaterial({
     vertexShader,
-    fragmentShader,
+    fragmentShader: fragmentUVShader,
     uniforms: {
       size: { value: size },
-      heightMap: { value: renderTarget.texture },
+      heightMap: { value: heightMap.texture },
       resolution: { value: resolution },
       amplitude: { value: amplitude },
       kernelSize: { value: 1.0 },
@@ -48,19 +87,69 @@ const createScene = ({
     wireframe: false,
   });
 
-  const mesh = new THREE.Mesh(geometry, terrainMaterial);
-  mesh.position.x = -size / 2;
-  mesh.position.z = -size / 2;
-  mainScene.add(mesh);
+  const terrainMaterial = new THREE.ShaderMaterial({
+    vertexShader,
+    fragmentShader: fragmentShader,
+    uniforms: {
+      size: { value: size },
+      heightMap: { value: heightMap.texture },
+      resolution: { value: resolution },
+      amplitude: { value: amplitude },
+      kernelSize: { value: 1.0 },
+    },
+    wireframe: false,
+  });
 
-  const heightMapQuadGeometry = new THREE.PlaneGeometry(1, 1);
-  heightMapQuadGeometry.translate(0.5, 0.5, 0);
+  const uvMesh = new THREE.Mesh(geometry, uvMaterial);
+  uvMesh.position.x = -size / 2;
+  uvMesh.position.z = -size / 2;
+  uvScene.add(uvMesh);
+
+  const terrainMesh = new THREE.Mesh(geometry, terrainMaterial);
+  terrainMesh.position.x = -size / 2;
+  terrainMesh.position.z = -size / 2;
+  terrainScene.add(terrainMesh);
+
+  const terrainCamera = new THREE.PerspectiveCamera(
+    75,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+  );
+
+  terrainCamera.position.z = -5;
+  terrainCamera.position.y = 5;
+  terrainCamera.position.x = -5;
+  terrainCamera.lookAt(0, 0, 0);
+
+  return { uvScene, terrainScene, terrainCamera };
+};
+
+const createVisualScene = ({
+  heightMap,
+  terrainTarget,
+}: {
+  heightMap: THREE.WebGLRenderTarget;
+  terrainTarget: THREE.WebGLRenderTarget;
+}) => {
+  const visualCamera = new THREE.OrthographicCamera(
+    -0.5,
+    0.5,
+    -0.5,
+    0.5,
+    -1,
+    1000
+  );
+  visualCamera.position.z = -1;
+  visualCamera.lookAt(0, 0, 0);
+
+  const visualScene = new THREE.Scene();
 
   const heightMapQuad = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1),
     new THREE.ShaderMaterial({
       uniforms: {
-        heightMap: { value: renderTarget.texture },
+        heightMap: { value: heightMap.texture },
         screenSize: {
           value: new THREE.Vector2(window.innerWidth, window.innerHeight),
         },
@@ -68,116 +157,127 @@ const createScene = ({
       },
       vertexShader: heightMapPreviewVtx,
       fragmentShader: heightMapPreviewFrag,
+      side: THREE.DoubleSide,
     })
   );
-  heightMapQuad.position.z = -1;
-  heightMapQuad.position.x = -1;
-  mainScene.add(heightMapQuad);
 
-  return { mainScene, terrainMaterial };
-};
+  const visualQuadGeometry = new THREE.PlaneGeometry(1, 1);
+  visualQuadGeometry.rotateZ(Math.PI);
 
-const createTargetScene = ({
-  resolution,
-  renderTarget,
-}: {
-  resolution: number;
-  renderTarget: THREE.WebGLRenderTarget;
-}) => {
-  const targetScene = new THREE.Scene();
-  const targetCamera = new THREE.OrthographicCamera(
-    0,
-    resolution,
-    0,
-    resolution,
-    -1,
-    1000
+  const visualQuad = new THREE.Mesh(
+    visualQuadGeometry,
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      map: terrainTarget.texture,
+    })
   );
 
-  const targetgeometry = new THREE.PlaneGeometry(resolution, resolution);
-  const targetMaterial = new THREE.ShaderMaterial({
-    uniforms: {
-      resolution: { value: resolution },
-      persistence: { value: 0.01 },
-      octaves: { value: 8 },
-      lacunarity: { value: 2.0 },
-      scale: { value: 0.1 },
-    },
-    vertexShader: heightMapVtx,
-    fragmentShader: heightMapFrag,
-    wireframe: false,
-  });
+  visualQuad.position.z = 1;
+  visualQuad.position.x = 0;
 
-  const quad = new THREE.Mesh(targetgeometry, targetMaterial);
+  visualScene.add(visualQuad);
+  visualScene.add(heightMapQuad);
 
-  targetScene.add(quad);
-
-  return { targetScene, targetCamera, targetMaterial, renderTarget };
+  return { visualScene, visualCamera };
 };
 
 export const setupCanvas = () => {
   const resolution = 512;
 
   const renderer = new THREE.WebGLRenderer();
-  const renderTarget = new THREE.WebGLRenderTarget(resolution, resolution);
 
-  const { mainScene, terrainMaterial } = createScene({
+  const heightMapTarget = new THREE.WebGLRenderTarget(resolution, resolution);
+  const uvTarget = new THREE.WebGLRenderTarget(
+    window.innerWidth,
+    window.innerHeight
+  );
+  const terrainTarget = new THREE.WebGLRenderTarget(
+    window.innerWidth,
+    window.innerHeight
+  );
+
+  const { heightMapScene, heightMapCamera, brushQuad, brushMaterial } =
+    createHeightMapScene({
+      resolution,
+    });
+  const { uvScene, terrainScene, terrainCamera } = createTerrainScene({
     size: 10,
     resolution,
     amplitude: 1,
-    renderTarget,
+    heightMap: heightMapTarget,
   });
-  const { targetScene, targetCamera, targetMaterial } = createTargetScene({
-    resolution,
-    renderTarget,
+  const { visualScene, visualCamera } = createVisualScene({
+    heightMap: heightMapTarget,
+    terrainTarget: terrainTarget,
   });
 
-  const camera = new THREE.PerspectiveCamera(
-    75,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    1000
-  );
-
-  camera.position.z = -10;
-  camera.position.y = 10;
-  camera.position.x = -10;
-  camera.lookAt(0, 0, 0);
-
-  new OrbitControls(camera, renderer.domElement);
   document.body.appendChild(renderer.domElement);
 
+  window.addEventListener("mousemove", (e) => {
+    const x = e.clientX;
+    const y = e.clientY;
+
+    pointer.set(x, y);
+  });
+
+  window.addEventListener("mousedown", () => {
+    isDrawing = true;
+  });
+
+  window.addEventListener("mouseup", () => {
+    isDrawing = false;
+  });
+
+  renderer.setRenderTarget(heightMapTarget);
+  renderer.setClearColor(0x000000);
+  renderer.clear();
+
   const gui = new dat.GUI();
+  gui.add(brushPrefs, "up", true).onChange((value) => {
+    if (value) {
+      brushMaterial.blendEquationAlpha = THREE.AddEquation;
+    } else {
+      brushMaterial.blendEquationAlpha = THREE.SubtractEquation;
+    }
+  });
 
-  const terrainFolder = gui.addFolder("Terrain");
-  terrainFolder
-    .add(targetMaterial.uniforms.persistence, "value", 0, 1)
-    .name("Persistence");
-  terrainFolder
-    .add(targetMaterial.uniforms.octaves, "value", 1, 10)
-    .name("Octaves");
-  terrainFolder
-    .add(targetMaterial.uniforms.lacunarity, "value", 1, 10)
-    .name("Lacunarity");
-  terrainFolder
-    .add(targetMaterial.uniforms.scale, "value", 0.01, 1)
-    .name("Scale");
-  terrainFolder.add(terrainMaterial, "wireframe").name("Wireframe");
+  setInterval(() => {
+    renderer.setRenderTarget(uvTarget);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.render(uvScene, terrainCamera);
 
-  terrainFolder.open();
-
-  requestAnimationFrame(function animate() {
-    terrainMaterial.uniforms.heightMap.value = renderTarget.texture;
-
-    renderer.setRenderTarget(renderTarget);
-    renderer.setSize(resolution, resolution);
-    renderer.render(targetScene, targetCamera);
+    renderer.setRenderTarget(terrainTarget);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.render(terrainScene, terrainCamera);
 
     renderer.setRenderTarget(null);
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.render(mainScene, camera);
-    requestAnimationFrame(animate);
-  });
+    renderer.render(visualScene, visualCamera);
+
+    if (isDrawing) {
+      const pixelBuffer = new Uint8Array(4);
+      renderer.readRenderTargetPixels(
+        uvTarget,
+        pointer.x,
+        window.innerHeight - pointer.y,
+        1,
+        1,
+        pixelBuffer
+      );
+
+      const xFromPixel = pixelBuffer[0] / 255;
+      const yFromPixel = pixelBuffer[1] / 255;
+
+      brushQuad.position.x = xFromPixel * resolution;
+      brushQuad.position.y = (1 - yFromPixel) * resolution;
+
+      renderer.setRenderTarget(heightMapTarget);
+      renderer.autoClear = false;
+      renderer.render(heightMapScene, heightMapCamera);
+      renderer.autoClear = true;
+      renderer.setRenderTarget(null);
+    } //Read color under pointer for scene texture
+  }, 1000 / 30);
 };
 
 const createGridGeometry = ({ resolution }: Terrain) => {
