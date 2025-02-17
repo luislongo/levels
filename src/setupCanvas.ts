@@ -1,13 +1,11 @@
-import * as dat from "dat.gui";
 import * as THREE from "three";
-import heightMapVtx from "./assets/shaders/heightMap.vert.glsl?url&raw";
-import heightMapFrag from "./assets/shaders/heightMap.frag.glsl?url&raw";
 import { OrbitControls } from "three/examples/jsm/Addons.js";
-import vertexShader from "./assets/shaders/scene.vert.glsl?url&raw";
-import fragmentShader from "./assets/shaders/scene.frag.glsl?url&raw";
+import brushTex from "./assets/brush.png";
 import heightMapPreviewFrag from "./assets/shaders/heightMapPreview.frag.glsl?url&raw";
 import heightMapPreviewVtx from "./assets/shaders/heightMapPreview.vert.glsl?url&raw";
-import { rotate } from "three/tsl";
+import fragmentUVShader from "./assets/shaders/sceneUV.frag.glsl?url&raw";
+import fragmentShader from "./assets/shaders/scene.frag.glsl?url&raw";
+import vertexShader from "./assets/shaders/scene.vert.glsl?url&raw";
 
 type Terrain = {
   size: number;
@@ -24,31 +22,27 @@ const createHeightMapScene = ({ resolution }: { resolution: number }) => {
     resolution,
     0,
     resolution,
-    -1,
+    0.1,
     1000
   );
+  heightMapCamera.position.z = 10;
 
-  const targetgeometry = new THREE.PlaneGeometry(resolution, resolution);
-  const heightMapMaterial = new THREE.ShaderMaterial({
-    uniforms: {
-      resolution: { value: resolution },
-      persistence: { value: 0.01 },
-      octaves: { value: 8 },
-      lacunarity: { value: 2.0 },
-      scale: { value: 1 },
-      offsetX: { value: 0.0 },
-      offsetY: { value: 0.0 },
-    },
-    vertexShader: heightMapVtx,
-    fragmentShader: heightMapFrag,
-    wireframe: false,
+  const brush = new THREE.PlaneGeometry(200, 200);
+  const brushTexture = new THREE.TextureLoader().load(brushTex);
+  const brushMaterial = new THREE.MeshBasicMaterial({
+    map: brushTexture,
+    opacity: 0.1,
+    side: THREE.DoubleSide,
+    transparent: true,
   });
 
-  const quad = new THREE.Mesh(targetgeometry, heightMapMaterial);
+  const brushQuad = new THREE.Mesh(brush, brushMaterial);
+  brushQuad.position.x = 100;
+  brushQuad.position.y = 100;
+  brushQuad.position.z = 3;
+  heightMapScene.add(brushQuad);
 
-  heightMapScene.add(quad);
-
-  return { heightMapScene, heightMapCamera, heightMapMaterial };
+  return { heightMapScene, heightMapCamera, brushQuad };
 };
 
 const createTerrainScene = ({
@@ -59,7 +53,9 @@ const createTerrainScene = ({
 }: Terrain & {
   heightMap: THREE.WebGLRenderTarget;
 }) => {
+  const uvScene = new THREE.Scene();
   const terrainScene = new THREE.Scene();
+
   const { vertices, indices } = createGridGeometry({
     size,
     resolution,
@@ -72,9 +68,9 @@ const createTerrainScene = ({
   );
   geometry.setIndex(indices);
 
-  const terrainMaterial = new THREE.ShaderMaterial({
+  const uvMaterial = new THREE.ShaderMaterial({
     vertexShader,
-    fragmentShader,
+    fragmentShader: fragmentUVShader,
     uniforms: {
       size: { value: size },
       heightMap: { value: heightMap.texture },
@@ -85,10 +81,28 @@ const createTerrainScene = ({
     wireframe: false,
   });
 
-  const mesh = new THREE.Mesh(geometry, terrainMaterial);
-  mesh.position.x = -size / 2;
-  mesh.position.z = -size / 2;
-  terrainScene.add(mesh);
+  const terrainMaterial = new THREE.ShaderMaterial({
+    vertexShader,
+    fragmentShader: fragmentShader,
+    uniforms: {
+      size: { value: size },
+      heightMap: { value: heightMap.texture },
+      resolution: { value: resolution },
+      amplitude: { value: amplitude },
+      kernelSize: { value: 1.0 },
+    },
+    wireframe: false,
+  });
+
+  const uvMesh = new THREE.Mesh(geometry, uvMaterial);
+  uvMesh.position.x = -size / 2;
+  uvMesh.position.z = -size / 2;
+  uvScene.add(uvMesh);
+
+  const terrainMesh = new THREE.Mesh(geometry, terrainMaterial);
+  terrainMesh.position.x = -size / 2;
+  terrainMesh.position.z = -size / 2;
+  terrainScene.add(terrainMesh);
 
   const terrainCamera = new THREE.PerspectiveCamera(
     75,
@@ -102,7 +116,7 @@ const createTerrainScene = ({
   terrainCamera.position.x = -10;
   terrainCamera.lookAt(0, 0, 0);
 
-  return { terrainScene, terrainMaterial, terrainCamera };
+  return { uvScene, terrainScene, terrainCamera };
 };
 
 const createVisualScene = ({
@@ -165,17 +179,21 @@ export const setupCanvas = () => {
   const resolution = 512;
 
   const renderer = new THREE.WebGLRenderer();
+
   const heightMapTarget = new THREE.WebGLRenderTarget(resolution, resolution);
+  const uvTarget = new THREE.WebGLRenderTarget(
+    window.innerWidth,
+    window.innerHeight
+  );
   const terrainTarget = new THREE.WebGLRenderTarget(
     window.innerWidth,
     window.innerHeight
   );
 
-  const { heightMapMaterial, heightMapScene, heightMapCamera } =
-    createHeightMapScene({
-      resolution,
-    });
-  const { terrainScene, terrainMaterial, terrainCamera } = createTerrainScene({
+  const { heightMapScene, heightMapCamera, brushQuad } = createHeightMapScene({
+    resolution,
+  });
+  const { uvScene, terrainScene, terrainCamera } = createTerrainScene({
     size: 10,
     resolution,
     amplitude: 1,
@@ -183,50 +201,51 @@ export const setupCanvas = () => {
   });
   const { visualScene, visualCamera } = createVisualScene({
     heightMap: heightMapTarget,
-    terrainTarget,
+    terrainTarget: terrainTarget,
   });
 
   new OrbitControls(terrainCamera, renderer.domElement);
   document.body.appendChild(renderer.domElement);
 
-  const gui = new dat.GUI();
-
-  const terrainFolder = gui.addFolder("Terrain");
-  terrainFolder
-    .add(heightMapMaterial.uniforms.persistence, "value", 0, 1)
-    .name("Persistence");
-  terrainFolder
-    .add(heightMapMaterial.uniforms.octaves, "value", 1, 10)
-    .name("Octaves");
-  terrainFolder
-    .add(heightMapMaterial.uniforms.lacunarity, "value", 1, 10)
-    .name("Lacunarity");
-  terrainFolder
-    .add(heightMapMaterial.uniforms.scale, "value", 0.01, 3)
-    .name("Scale");
-  terrainFolder.add(terrainMaterial, "wireframe").name("Wireframe");
-  terrainFolder
-    .add(heightMapMaterial.uniforms.offsetX, "value", -1000, 1000)
-    .name("Offset X");
-  terrainFolder
-    .add(heightMapMaterial.uniforms.offsetY, "value", -1000, 1000)
-    .name("Offset Y");
-
-  terrainFolder.open();
-
   window.addEventListener("mousemove", (e) => {
-    const x = e.offsetX / window.innerWidth;
-    const y = e.offsetY / window.innerHeight;
+    const x = e.clientX;
+    const y = e.clientY;
 
     pointer.set(x, y);
   });
 
-  requestAnimationFrame(function animate() {
-    terrainMaterial.uniforms.heightMap.value = heightMapTarget.texture;
+  window.addEventListener("click", () => {
+    const pixelBuffer = new Uint8Array(4);
+    renderer.readRenderTargetPixels(
+      uvTarget,
+      pointer.x,
+      window.innerHeight - pointer.y,
+      1,
+      1,
+      pixelBuffer
+    );
+
+    const xFromPixel = pixelBuffer[0] / 255;
+    const yFromPixel = pixelBuffer[1] / 255;
+
+    brushQuad.position.x = xFromPixel * resolution;
+    brushQuad.position.y = (1 - yFromPixel) * resolution;
 
     renderer.setRenderTarget(heightMapTarget);
-    renderer.setSize(resolution, resolution);
+    renderer.autoClear = false;
     renderer.render(heightMapScene, heightMapCamera);
+    renderer.autoClear = true;
+    renderer.setRenderTarget(null);
+  });
+
+  renderer.setRenderTarget(heightMapTarget);
+  renderer.setClearColor(0x000000);
+  renderer.clear();
+
+  requestAnimationFrame(function animate() {
+    renderer.setRenderTarget(uvTarget);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.render(uvScene, terrainCamera);
 
     renderer.setRenderTarget(terrainTarget);
     renderer.setSize(window.innerWidth, window.innerHeight);
