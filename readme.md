@@ -45,7 +45,7 @@ The rendering style will feature a distinctive cel-shaded aesthetic, inspired by
 - **feat/002/Heightmap Integration**: Use grayscale images to apply elevation data to the terrain.
 - **feat/003/Dynamic Mesh Updates**: Enable real-time updates to the terrain based on user interactions.
 - **feat/004/Triplanar Mapping**: Apply textures to the terrain to avoid distortions and ensure seamless transitions between surfaces.
-- **feat/005/Implement Custom Shading**: Write GLSL shaders to achieve a cel-shaded look and enhance texture details.
+- ~~feat/005/Implement Custom Shading: Write GLSL shaders to achieve a cel-shaded look and enhance texture details.~~
 - **feat/006/Brush Tool Implementation**: Allow users to interact with the terrain using tools to raise, lower, or flatten sections.
 - **feat/007/Create UI Elements**: Create a user-friendly interface for brush size, intensity, and terrain modification settings.
 - **feat/008/Optimal Pathfinding Algorithm**: Implement pathfinding logic (e.g., A\* or Dijkstra's algorithm) to calculate efficient routes based on terrain data.
