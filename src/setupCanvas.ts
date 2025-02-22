@@ -96,6 +96,8 @@ const createTerrainScene = ({
       resolution: { value: resolution },
       amplitude: { value: amplitude },
       kernelSize: { value: 1.0 },
+      flatAreaColor: { value: [0.0, 1.0, 0.0, 1.0] },
+      steepAreaColor: { value: [171.0 / 255, 168 / 255, 168 / 255, 1.0] },
     },
     wireframe: false,
   });
@@ -122,7 +124,7 @@ const createTerrainScene = ({
   terrainCamera.position.x = -5;
   terrainCamera.lookAt(0, 0, 0);
 
-  return { uvScene, terrainScene, terrainCamera };
+  return { uvScene, terrainScene, terrainCamera, terrainMaterial };
 };
 
 const createVisualScene = ({
@@ -200,12 +202,13 @@ export const setupCanvas = () => {
     createHeightMapScene({
       resolution,
     });
-  const { uvScene, terrainScene, terrainCamera } = createTerrainScene({
-    size: 10,
-    resolution,
-    amplitude: 1,
-    heightMap: heightMapTarget,
-  });
+  const { uvScene, terrainScene, terrainCamera, terrainMaterial } =
+    createTerrainScene({
+      size: 10,
+      resolution,
+      amplitude: 1,
+      heightMap: heightMapTarget,
+    });
   const { visualScene, visualCamera } = createVisualScene({
     heightMap: heightMapTarget,
     terrainTarget: terrainTarget,
@@ -241,6 +244,27 @@ export const setupCanvas = () => {
     }
   });
 
+  gui
+    .addColor(terrainMaterial.uniforms.flatAreaColor, "value")
+    .onChange((v) => {
+      terrainMaterial.uniforms.flatAreaColor.value = [
+        v[0] / 255,
+        v[1] / 255,
+        v[2] / 255,
+        1,
+      ];
+    });
+  gui
+    .addColor(terrainMaterial.uniforms.steepAreaColor, "value")
+    .onChange((v) => {
+      terrainMaterial.uniforms.steepAreaColor.value = [
+        v[0] / 255,
+        v[1] / 255,
+        v[2] / 255,
+        1,
+      ];
+    });
+
   setInterval(() => {
     renderer.setRenderTarget(uvTarget);
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -254,7 +278,7 @@ export const setupCanvas = () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.render(visualScene, visualCamera);
 
-    if (isDrawing) {
+    if (isDrawing && pointer.x !== 0 && pointer.y !== 0) {
       const pixelBuffer = new Uint8Array(4);
       renderer.readRenderTargetPixels(
         uvTarget,
